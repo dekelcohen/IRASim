@@ -14,6 +14,13 @@ download_file() {
   fi
 }
 
+# Check for the --download_only_eval_langtable option
+if [[ "$1" == "--download_only_eval_langtable" ]]; then
+  echo "Downloading only languagetable evaluation data..."
+  download_file "https://lf-robot-opensource.bytetos.com/obj/lab-robot-public/opensource_IRASim_v1/languagetable_evaluation_data.tar.gz"
+  exit 0
+fi
+
 # rt-1
 download_file "https://lf-robot-opensource.bytetos.com/obj/lab-robot-public/opensource_IRASim_v1/rt1_train_data.tar.gz"
 download_file "https://lf-robot-opensource.bytetos.com/obj/lab-robot-public/opensource_IRASim_v1/rt1_evaluation_data.tar.gz"
