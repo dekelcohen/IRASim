@@ -203,3 +203,17 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args = get_args(args)
     main(args)
+
+
+"""
+the script reads from:
+
+Annotation files: languagetable/annotation/val/
+Latent video files: languagetable/evaluation_latent_videos/
+Video files: languagetable/evaluation_videos/
+Model checkpoints: languagetable/checkpoints/
+An arrow image: ./sample/arrow.jpg
+
+And it writes output files to:
+application/languagetable_game/
+"""
