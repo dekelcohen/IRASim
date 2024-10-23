@@ -33,37 +33,29 @@ from evaluate.generate_short_video import generate_single_video
 def create_arrow_image(direction='w', size=50, color=(255, 0, 0)):
     """
     Create an arrow image pointing in the specified direction.
-    
-    Parameters:
-    - direction: The direction of the arrow ('up', 'down', 'left', 'right')
-    - size: The length of the arrow in pixels
-    - color: The color of the arrow (R, G, B)
-    
-    Returns:
-    - A numpy array representing the arrow image.
     """
     image = np.zeros((size, size, 3), dtype=np.uint8)
-    image = imageio.imread('./sample/arrow.jpg')
+    image_path = './sample/arrow.jpg'
+    print(f"Reading arrow image from: {image_path}")
+    image = imageio.imread(image_path)
+    
     if direction == 's':
         image = np.flipud(image)
     elif direction == 'a':
         image = np.rot90(image)
     elif direction == 'd':
         image = np.rot90(image, -1)
+    
     return image
 
 def add_arrows_to_video(video_np, save_path, actions):
     """
     Add direction arrows to the video based on the actions list and save the modified video.
-    
-    Parameters:
-    - video_np: A numpy array representing the video (frames, height, width, channels).
-    - save_path: Path to save the modified video.
-    - actions: A list of actions ('w', 's', 'a', 'd') for each frame.
     """
     if len(actions) != video_np.shape[0]:
         raise ValueError("The length of the actions list must match the number of video frames.")
     
+    print(f"Saving modified video with arrows to: {save_path}")
     writer = get_writer(save_path, fps=4) 
     for frame, action in zip(video_np, actions):
         if action != ' ':
@@ -76,20 +68,6 @@ def add_arrows_to_video(video_np, save_path, actions):
         writer.append_data(frame)
     writer.close()
 
-def read_actions_from_keyboard():
-    valid_actions = ['w', 'a', 's', 'd', ' ']
-    actions = []
-
-    while len(actions) < 15:
-        input_actions = input(f"Please enter actions (remaining {15 - len(actions)}): ").lower()
-        for action in input_actions:
-            if action in valid_actions and len(actions) < 15:
-                actions.append(action)
-        
-        if len(actions) < 15:
-            print(f"Not enough actions. Please enter the remaining {15 - len(actions)} actions.")
-    return actions
-
 def main(args):
     assert torch.cuda.is_available(), "Training currently requires at least one GPU."
     device = torch.device("cuda", 0)
@@ -101,6 +79,7 @@ def main(args):
     vae = AutoencoderKL.from_pretrained(args.vae_model_path, subfolder="vae").to(device)
 
     if args.evaluate_checkpoint:
+        print(f"Loading model checkpoint from: {args.evaluate_checkpoint}")
         checkpoint = torch.load(args.evaluate_checkpoint, map_location=lambda storage, loc: storage)
         if "ema" in checkpoint: 
             print('Using ema ckpt!')
@@ -112,29 +91,31 @@ def main(args):
             if k in model_dict:
                 pretrained_dict[k] = v
             else:
-                print('Ignoring: {}'.format(k))
-        print('Successfully Load {}% original pretrained model weights '.format(len(pretrained_dict) / len(checkpoint.items()) * 100))
+                print(f'Ignoring: {k}')
+        print(f'Successfully loaded {len(pretrained_dict) / len(checkpoint.items()) * 100}% of the original pretrained model weights.')
         model_dict.update(pretrained_dict)
         model.load_state_dict(model_dict)
-        print('Successfully load model at {}!'.format(args.evaluate_checkpoint)) 
+        print(f'Successfully loaded model from: {args.evaluate_checkpoint}') 
     model.to(device)
     model.eval()
 
-    train_dataset,val_dataset = get_dataset(args)
-
-    left_scale,right_scale = 0.5,-0.5
-    up_scale, down_scale = 0.5, -0.5
+    train_dataset, val_dataset = get_dataset(args)
 
     ann_file = val_dataset.ann_files[0]
+    print(f"Reading annotation file from: {ann_file}")
 
     with open(ann_file, "rb") as f:
         ann = json.load(f)
-    latent_video_path = os.path.join(args.video_path,ann['latent_video_path'])
+
+    latent_video_path = os.path.join(args.video_path, ann['latent_video_path'])
+    print(f"Loading latent video from: {latent_video_path}")
     with open(latent_video_path, 'rb') as f:
         latent_video = torch.load(f)['obs']
     
     video_path = os.path.join(args.video_path, ann['video_path'])
+    print(f"Loading video from: {video_path}")
     video_reader = imageio.get_reader(video_path)
+    
     video_tensor = []
     for frame in video_reader:
         frame_tensor = torch.tensor(frame)
@@ -143,59 +124,63 @@ def main(args):
     video_tensor = torch.stack(video_tensor)
 
     game_dir = 'application/languagetable_game'
-    os.makedirs(game_dir,exist_ok=True)
-    print(f'Game Dir {game_dir} !')
+    print(f"Creating game directory: {game_dir}")
+    os.makedirs(game_dir, exist_ok=True)
 
     start_idx = 0
     start_image = latent_video[start_idx]
     video_tensor = video_tensor[start_idx:]
-    seg_idx = 0
-    
-    video_tensor = video_tensor
+
     video_tensor = video_tensor.permute(0, 3, 1, 2)
     video_tensor = val_dataset.resize_preprocess(video_tensor)
     video_tensor = video_tensor.permute(0, 2, 3, 1)
-    imageio.imwrite(os.path.join(game_dir,'first_image.png'), video_tensor[0].numpy())
-    seg_video_list = [video_tensor[0:1].numpy()] # TODO
+
+    first_image_path = os.path.join(game_dir, 'first_image.png')
+    print(f"Saving the first image of the video to: {first_image_path}")
+    imageio.imwrite(first_image_path, video_tensor[0].numpy())
+
+    seg_video_list = [video_tensor[0:1].numpy()]
+    seg_idx = 0
+
     while True:
-        # action = ann['actions']
         env_actions = read_actions_from_keyboard()
         actions = []
         for action in env_actions:
             if action == 'd':
-                actions.append([0,up_scale])
+                actions.append([0, 0.5])
             elif action == 'a':
-                actions.append([0,down_scale])
+                actions.append([0, -0.5])
             elif action == 's':
-                actions.append([left_scale,0])
+                actions.append([-0.5, 0])
             elif action == 'w':
-                actions.append([right_scale,0])
+                actions.append([0.5, 0])
             else:
-                actions.append([0,0])
-        print('Actions to be processed are ', ' '.join(env_actions))
+                actions.append([0, 0])
+        
+        print(f'Processing actions: {" ".join(env_actions)}')
         actions = torch.from_numpy(np.array(actions))
 
-        seg_action = actions
         start_image = start_image.unsqueeze(0).unsqueeze(0)
-        seg_action = seg_action.unsqueeze(0)
-        seg_video, seg_latents = generate_single_video(args, start_image , seg_action, device, vae, model)
-        seg_video = seg_video.squeeze()
-        seg_latents = seg_latents.squeeze()
-        start_image = seg_latents[-1].clone()
+        seg_action = actions.unsqueeze(0)
+        seg_video, seg_latents = generate_single_video(args, start_image, seg_action, device, vae, model)
+
+        start_image = seg_latents.squeeze()[-1].clone()
 
         t_videos = ((seg_video / 2.0 + 0.5).clamp(0, 1) * 255).detach().to(dtype=torch.uint8).cpu().contiguous()
-        t_videos = rearrange(t_videos, 'f c h w -> f h w c')
-        t_videos = t_videos.numpy()
+        t_videos = rearrange(t_videos, 'f c h w -> f h w c').numpy()
+
         seg_video_list.append(t_videos[1:])
-        all_video = np.concatenate(seg_video_list,axis=0)
-        output_video_path = os.path.join(game_dir,f'all_{seg_idx}-th.mp4')
+        all_video = np.concatenate(seg_video_list, axis=0)
+
+        output_video_path = os.path.join(game_dir, f'all_{seg_idx}-th.mp4')
+        print(f"Saving generated video to: {output_video_path}")
         writer = get_writer(output_video_path, fps=4)
         for frame in all_video:
             writer.append_data(frame)
         writer.close()
-        print(f'generate video: {output_video_path}')
+
+        print(f"Generated video: {output_video_path}")
         seg_idx += 1
-    
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
